@@ -1,0 +1,31 @@
+[
+  {
+    "id": "thursday",
+    "name": "Thursday Women's Division",
+    "days": [
+      "Thursday"
+    ],
+    "timeBlocks": [
+      { "label": "7:30 AM - 9:30 AM", "capacity": null },
+      { "label": "9:30 AM - 11:30 AM", "capacity": null },
+      { "label": "11:30 AM+", "capacity": null }
+    ],
+    "maxPlayers": 4,
+    "noticeText": null
+  },
+  {
+    "id": "weekend",
+    "name": "Weekend Porch",
+    "days": [
+      "Saturday",
+      "Sunday"
+    ],
+    "timeBlocks": [
+      { "label": "7:30 AM - 9:30 AM", "capacity": null },
+      { "label": "9:30 AM - 11:30 AM", "capacity": null },
+      { "label": "11:30 AM+", "capacity": null }
+    ],
+    "maxPlayers": 4,
+    "noticeText": null
+  }
+]

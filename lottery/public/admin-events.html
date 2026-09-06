@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Manage Events — MCC</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Manchester Country Club — Weekend Tee Times</h1>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="admin.html">Pro Shop Dashboard</a>
+      <a href="admin-events.html">Manage Events</a>
+    </nav>
+  </header>
+  <main>
+    <div class="card">
+      <h2>Events</h2>
+      <p class="muted">
+        Sign-ups are grouped by event (e.g. Thursday, Weekend). Multi-day events show a Day picker
+        on the sign-up form. The notice, if set, is shown at the top of the sign-up form when that
+        event is selected — use it for things like "don't sign up here if you're in an official event."
+      </p>
+      <div id="event-list"></div>
+    </div>
+
+    <div class="card">
+      <h2 id="form-title">Add an Event</h2>
+      <form id="event-form">
+        <label for="event-name">Name</label>
+        <input type="text" id="event-name" placeholder="e.g. Thursday" required />
+
+        <label for="event-days">Day(s)</label>
+        <input type="text" id="event-days" placeholder="e.g. Saturday, Sunday" required />
+        <p class="muted">Comma-separated. A single day means no Day picker is shown on the form.</p>
+
+        <label>Time Blocks</label>
+        <p class="muted">
+          These are the choices golfers pick from on the sign-up form. Capacity is optional and is
+          the total number of <em>players</em> allowed in that block across every group — not a
+          per-group limit — so singles can sign up without needing to fill or join a foursome.
+          Leave it blank for no cap.
+        </p>
+        <div id="time-blocks-editor"></div>
+        <button type="button" class="secondary" id="add-time-block-btn">+ Add Time Block</button>
+
+        <label for="event-max-players">Max Players per Group</label>
+        <input type="number" id="event-max-players" min="1" max="8" value="4" required />
+        <p class="muted">How many player slots one sign-up (one foursome, twosome, etc.) can hold.</p>
+
+        <label for="event-notice">Notice (optional)</label>
+        <textarea
+          id="event-notice"
+          class="notice-input"
+          placeholder="e.g. Please do not sign up here if you are playing in an official club event."
+        ></textarea>
+
+        <div id="error" class="error"></div>
+        <button type="submit" id="submit-btn">Add Event</button>
+        <button type="button" class="secondary" id="cancel-edit-btn" style="display:none">
+          Cancel Edit
+        </button>
+      </form>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    let events = [];
+    let editingId = null;
+
+    const form = document.getElementById("event-form");
+    const nameInput = document.getElementById("event-name");
+    const daysInput = document.getElementById("event-days");
+    const timeBlocksEditor = document.getElementById("time-blocks-editor");
+    const maxPlayersInput = document.getElementById("event-max-players");
+    const noticeInput = document.getElementById("event-notice");
+    const errorEl = document.getElementById("error");
+
+    function addTimeBlockRow(block) {
+      const row = document.createElement("div");
+      row.className = "time-block-row";
+      row.innerHTML = `
+        <input type="text" class="tb-label" placeholder="e.g. 7:30 AM - 9:30 AM" value="${escapeHtml(
+          (block && block.label) || ""
+        )}" />
+        <input type="number" class="tb-capacity" min="1" placeholder="Capacity (optional)" value="${
+          block && block.capacity != null ? block.capacity : ""
+        }" />
+        <button type="button" class="danger tb-remove">Remove</button>
+      `;
+      row.querySelector(".tb-remove").addEventListener("click", () => row.remove());
+      timeBlocksEditor.appendChild(row);
+    }
+
+    function renderTimeBlockEditor(blocks) {
+      timeBlocksEditor.innerHTML = "";
+      (blocks && blocks.length ? blocks : [null]).forEach(addTimeBlockRow);
+    }
+
+    function collectTimeBlocks() {
+      return [...timeBlocksEditor.querySelectorAll(".time-block-row")]
+        .map((row) => ({
+          label: row.querySelector(".tb-label").value.trim(),
+          capacity: row.querySelector(".tb-capacity").value.trim() || null,
+        }))
+        .filter((b) => b.label);
+    }
+
+    document.getElementById("add-time-block-btn").addEventListener("click", () => addTimeBlockRow(null));
+
+    function renderList() {
+      const list = document.getElementById("event-list");
+      if (events.length === 0) {
+        list.innerHTML = `<p class="muted">No events yet.</p>`;
+        return;
+      }
+      list.innerHTML = events
+        .map(
+          (ev) => `
+        <div class="event-manager-row">
+          <div>
+            <strong>${escapeHtml(ev.name)}</strong>
+            <span class="tag">${escapeHtml(ev.days.join(", "))}</span>
+            <span class="tag">${ev.maxPlayers} per group</span>
+            <div class="muted">${ev.timeBlocks
+              .map((b) => escapeHtml(b.label) + (b.capacity != null ? ` (cap ${b.capacity})` : ""))
+              .join(" · ")}</div>
+            ${ev.noticeText ? `<div class="muted">Notice: ${escapeHtml(ev.noticeText)}</div>` : ""}
+          </div>
+          <div class="actions">
+            <button class="secondary" data-edit="${ev.id}">Edit</button>
+            <button class="danger" data-delete="${ev.id}">Delete</button>
+          </div>
+        </div>`
+        )
+        .join("");
+
+      list.querySelectorAll("button[data-edit]").forEach((btn) => {
+        btn.addEventListener("click", () => startEdit(btn.dataset.edit));
+      });
+      list.querySelectorAll("button[data-delete]").forEach((btn) => {
+        btn.addEventListener("click", () => remove(btn.dataset.delete));
+      });
+    }
+
+    function startEdit(id) {
+      const event = events.find((e) => e.id === id);
+      if (!event) return;
+      editingId = id;
+      nameInput.value = event.name;
+      daysInput.value = event.days.join(", ");
+      renderTimeBlockEditor(event.timeBlocks);
+      maxPlayersInput.value = event.maxPlayers;
+      noticeInput.value = event.noticeText || "";
+      document.getElementById("form-title").textContent = `Edit "${event.name}"`;
+      document.getElementById("submit-btn").textContent = "Save Changes";
+      document.getElementById("cancel-edit-btn").style.display = "";
+      errorEl.textContent = "";
+      form.scrollIntoView({ behavior: "smooth" });
+    }
+
+    function resetForm() {
+      editingId = null;
+      form.reset();
+      renderTimeBlockEditor([]);
+      document.getElementById("form-title").textContent = "Add an Event";
+      document.getElementById("submit-btn").textContent = "Add Event";
+      document.getElementById("cancel-edit-btn").style.display = "none";
+      errorEl.textContent = "";
+    }
+
+    document.getElementById("cancel-edit-btn").addEventListener("click", resetForm);
+
+    async function remove(id) {
+      const event = events.find((e) => e.id === id);
+      if (!confirm(`Delete "${event.name}"? This only works if it has no registrations.`)) return;
+      try {
+        await fetchJSON(`/api/events/${id}`, { method: "DELETE" });
+        if (editingId === id) resetForm();
+        await refresh();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      errorEl.textContent = "";
+      const payload = {
+        name: nameInput.value.trim(),
+        days: daysInput.value,
+        timeBlocks: timeBlocksInput.value,
+        maxPlayers: maxPlayersInput.value,
+        noticeText: noticeInput.value.trim(),
+      };
+      try {
+        if (editingId) {
+          await fetchJSON(`/api/events/${editingId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+        } else {
+          await fetchJSON("/api/events", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+        }
+        resetForm();
+        await refresh();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+
+    async function refresh() {
+      events = await loadEvents();
+      renderList();
+    }
+
+    refresh();
+  </script>
+</body>
+</html>

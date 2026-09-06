@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MANCC Golf League</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>MANCC Golf League</h1>
+  <p id="last-updated">Loading…</p>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="ringers">Ringers</button>
+    <button class="tab-btn" data-tab="birdies">Birdies</button>
+  </div>
+
+  <div id="ringers" class="tab-content active">
+    <div id="ringer-list-view"></div>
+    <div id="ringer-detail-view" hidden></div>
+  </div>
+
+  <div id="birdies" class="tab-content">
+    <div id="birdie-list-view"></div>
+    <div id="birdie-detail-view" hidden></div>
+  </div>
+
+  <script>
+  /*
+   * All data processing happens here in the browser after scores.json is fetched.
+   * There is no backend — the page is fully static.
+   *
+   * Data flow:
+   *   fetch('scores.json')
+   *     → computeRingers()   → buildRingerTable() / showRingerDetail()
+   *     → computeBirdies()   → buildBirdieList()  / showBirdieDetail()
+   *
+   * scores.json shape:
+   *   {
+   *     lastUpdated: string (ISO 8601),
+   *     pars: number[18],
+   *     players: {
+   *       "Last, First": {
+   *         rounds: [{ date: "MM/DD/YYYY", scores: number[18], birdies: number[] }]
+   *       }
+   *     }
+   *   }
+   */
+
+  // ---------------------------------------------------------------------------
+  // Computation (done client-side so scores.json stays simple raw data)
+  // ---------------------------------------------------------------------------
+
+  function computeRingers(players, pars) {
+    /*
+     * For each player, find the lowest score on each hole across all their rounds.
+     * That's their "ringer" — an imaginary best-possible card.
+     *
+     * Returns an array sorted by ringer total ascending (players with any holes
+     * still unplayed sort to the bottom until their card is complete).
+     *
+     * Each element: { playerName, holes, total, isComplete, rounds }
+     *   holes — array of { holeNumber, par, score } using the ringer (best) score
+     *   rounds — the raw round rows, passed through for the detail view
+     */
+    return Object.entries(players).map(([name, {rounds}]) => {
+      const best = pars.map((_, i) => {
+        const scores = rounds.map(r => r.scores[i]).filter(s => s !== null && s !== undefined);
+        return scores.length ? Math.min(...scores) : null;
+      });
+      const holes = pars.map((par, i) => ({ holeNumber: i + 1, par, score: best[i] }));
+      const nonNull = best.filter(s => s !== null);
+      const total = nonNull.length ? nonNull.reduce((a, b) => a + b, 0) : null;
+      const isComplete = best.every(s => s !== null);
+      return { playerName: name, holes, total, isComplete, rounds };
+    }).sort((a, b) => {
+      if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;
+      return (a.total ?? Infinity) - (b.total ?? Infinity);
+    });
+  }
+
+  function computeBirdies(players, pars) {
+    /*
+     * For each player, count how many times they birdied (or eagled) each hole
+     * across all rounds. The birdies field in scores.json is pre-computed by
+     * fetch.py, so we just aggregate it here.
+     *
+     * Returns an array sorted by totalBirdies descending.
+     *
+     * Each element: { playerName, totalBirdies, birdiedHoles, rounds }
+     *   birdiedHoles — holes where they have at least one birdie, with a count
+     *   rounds — per-round birdie hole numbers for the detail view
+     */
+    return Object.entries(players).map(([name, {rounds}]) => {
+      const holeCounts = new Array(18).fill(0);
+      const roundRows = rounds.map(r => {
+        r.birdies.forEach(holeNumber => holeCounts[holeNumber - 1]++);
+        return { date: r.date, birdiedHoleNumbers: r.birdies };
+      });
+      const birdiedHoles = holeCounts
+        .map((count, i) => ({ holeNumber: i + 1, par: pars[i], count }))
+        .filter(h => h.count > 0);
+      const totalBirdies = birdiedHoles.reduce((a, h) => a + h.count, 0);
+      return { playerName: name, totalBirdies, birdiedHoles, rounds: roundRows };
+    }).sort((a, b) => b.totalBirdies - a.totalBirdies);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Utilities
+  // ---------------------------------------------------------------------------
+
+  // Maps a score relative to par to a CSS class name for cell colour coding.
+  function scoreClass(score, par) {
+    if (score === null || score === undefined) return 'empty';
+    if (score <= par - 2) return 'eagle';
+    if (score === par - 1) return 'birdie';
+    if (score === par)     return 'par';
+    return 'bogey';
+  }
+
+  // Returns '–' for null/undefined scores (holes not yet played).
+  function scoreDisplay(score) {
+    return (score === null || score === undefined) ? '–' : score;
+  }
+
+  /*
+   * Minimal DOM element builder. Avoids innerHTML for safety.
+   * Usage: el('td', { className: 'birdie', textContent: '3' })
+   */
+  function el(tag, attrs = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'className') node.className = v;
+      else if (k === 'textContent') node.textContent = v;
+      else if (k === 'hidden') node.hidden = v;
+      else node.setAttribute(k, v);
+    }
+    for (const child of children) {
+      if (child === null || child === undefined) continue;
+      node.append(typeof child === 'string' ? document.createTextNode(child) : child);
+    }
+    return node;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ringer List view — one row per player showing their best score per hole
+  // ---------------------------------------------------------------------------
+
+  function buildRingerTable(ringerCards, pars) {
+    const holes = Array.from({length: 18}, (_, i) => i + 1);
+
+    const thead = el('thead', {},
+      el('tr', {},
+        el('th', {textContent: 'Player'}),
+        ...holes.map(h => el('th', {className: 'hole-header', textContent: h})),
+        el('th', {textContent: 'TOT'})
+      )
+    );
+
+    const parRow = el('tr', {className: 'par-row'},
+      el('td', {textContent: 'Par'}),
+      ...pars.map(p => el('td', {textContent: p})),
+      el('td', {textContent: pars.reduce((a, b) => a + b, 0)})
+    );
+
+    const tbody = el('tbody', {}, parRow);
+
+    for (const card of ringerCards) {
+      const tr = el('tr', {});
+      const nameCell = el('td', {className: 'player-name', textContent: card.playerName});
+      nameCell.addEventListener('click', () => showRingerDetail(card, pars));
+      tr.append(nameCell);
+
+      for (const hole of card.holes) {
+        const cls = scoreClass(hole.score, hole.par);
+        tr.append(el('td', {className: cls, textContent: scoreDisplay(hole.score)}));
+      }
+
+      const tot = card.total !== null ? card.total : '–';
+      tr.append(el('td', {className: 'total', textContent: tot}));
+      tbody.append(tr);
+    }
+
+    const wrap = el('div', {className: 'scorecard-wrap'});
+    const table = el('table', {}, thead, tbody);
+    wrap.append(table);
+    return wrap;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ringer Detail view — one row per round for a single player, with ringer
+  // cells highlighted to show which round produced each best score
+  // ---------------------------------------------------------------------------
+
+  function showRingerDetail(card, pars) {
+    document.getElementById('ringer-list-view').hidden = true;
+    const detailView = document.getElementById('ringer-detail-view');
+    detailView.hidden = false;
+    detailView.innerHTML = '';
+
+    // Re-derive best scores here (same logic as computeRingers) so the detail
+    // view can highlight which round each ringer came from.
+    const best = pars.map((_, i) => {
+      const scores = card.rounds
+        .map(r => r.scores[i])
+        .filter(s => s !== null && s !== undefined);
+      return scores.length ? Math.min(...scores) : null;
+    });
+
+    const backBtn = el('button', {className: 'back-btn', textContent: '← Back to Ringers'});
+    backBtn.addEventListener('click', () => {
+      detailView.hidden = true;
+      document.getElementById('ringer-list-view').hidden = false;
+    });
+
+    const holes = Array.from({length: 18}, (_, i) => i + 1);
+
+    const thead = el('thead', {},
+      el('tr', {},
+        el('th', {textContent: 'Round'}),
+        ...holes.map(h => el('th', {className: 'hole-header', textContent: h})),
+        el('th', {textContent: 'TOT'})
+      )
+    );
+
+    const parRow = el('tr', {className: 'par-row'},
+      el('td', {textContent: 'Par'}),
+      ...pars.map(p => el('td', {textContent: p})),
+      el('td', {textContent: pars.reduce((a, b) => a + b, 0)})
+    );
+
+    const tbody = el('tbody', {}, parRow);
+
+    for (const round of card.rounds) {
+      const tr = el('tr', {});
+      tr.append(el('td', {className: 'player-name', style: 'cursor:default;color:#333;', textContent: round.date}));
+
+      let roundTotal = 0;
+      let hasNull = false;
+      for (let i = 0; i < 18; i++) {
+        const score = round.scores[i];
+        const par   = pars[i];
+        let cls = scoreClass(score, par);
+        // Add the .is-ringer outline to cells that match the player's best score
+        // for that hole, so you can see at a glance which round it came from.
+        const isRinger = score !== null && score !== undefined && score === best[i];
+        const td = el('td', {className: cls + (isRinger ? ' is-ringer' : ''), textContent: scoreDisplay(score)});
+        tr.append(td);
+        if (score === null || score === undefined) { hasNull = true; }
+        else { roundTotal += score; }
+      }
+      tr.append(el('td', {className: 'total', textContent: hasNull ? '–' : roundTotal}));
+      tbody.append(tr);
+    }
+
+    // Ringer summary row
+    const ringerRow = el('tr', {className: 'ringer-row'});
+    ringerRow.append(el('td', {className: 'player-name', textContent: 'Ringer'}));
+    let ringerTotal = 0;
+    let ringerHasNull = false;
+    for (let i = 0; i < 18; i++) {
+      const score = best[i];
+      const par   = pars[i];
+      const cls   = scoreClass(score, par);
+      ringerRow.append(el('td', {className: cls, textContent: scoreDisplay(score)}));
+      if (score === null) { ringerHasNull = true; }
+      else { ringerTotal += score; }
+    }
+    ringerRow.append(el('td', {className: 'total', textContent: ringerHasNull ? '–' : ringerTotal}));
+    tbody.append(ringerRow);
+
+    const wrap = el('div', {className: 'scorecard-wrap'});
+    wrap.append(el('table', {}, thead, tbody));
+
+    detailView.append(backBtn, el('h2', {textContent: card.playerName, style: 'margin-bottom:12px;'}), wrap);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Birdie List view — ranked by total birdies with hole badges
+  // ---------------------------------------------------------------------------
+
+  // Renders a circular hole-number badge. Shows a superscript count if the
+  // player birdied that hole more than once across all rounds.
+  function makeBadge(holeNumber, count) {
+    const b = el('span', {className: 'badge', textContent: holeNumber});
+    if (count > 1) b.append(el('sup', {textContent: count}));
+    return b;
+  }
+
+  function buildBirdieList(birdieRecords) {
+    const list = el('div', {className: 'birdie-list'});
+
+    birdieRecords.forEach((rec, idx) => {
+      const row = el('div', {className: 'birdie-row'});
+      row.append(
+        el('span', {className: 'birdie-rank', textContent: `${idx + 1}.`}),
+        el('span', {className: 'birdie-name', textContent: rec.playerName}),
+        el('span', {className: 'birdie-total', textContent: `${rec.totalBirdies} 🐦`})
+      );
+
+      const badges = el('span', {className: 'badges'});
+      for (const h of rec.birdiedHoles) {
+        badges.append(makeBadge(h.holeNumber, h.count));
+      }
+      row.append(badges);
+      row.addEventListener('click', () => showBirdieDetail(rec));
+      list.append(row);
+    });
+
+    return list;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Birdie Detail view — per-round breakdown for a single player
+  // ---------------------------------------------------------------------------
+
+  function showBirdieDetail(rec) {
+    document.getElementById('birdie-list-view').hidden = true;
+    const detailView = document.getElementById('birdie-detail-view');
+    detailView.hidden = false;
+    detailView.innerHTML = '';
+
+    const backBtn = el('button', {className: 'back-btn', textContent: '← Back to Birdies'});
+    backBtn.addEventListener('click', () => {
+      detailView.hidden = true;
+      document.getElementById('birdie-list-view').hidden = false;
+    });
+
+    const rows = el('div', {className: 'birdie-detail-rows'});
+
+    for (const round of rec.rounds) {
+      const section = el('div', {className: 'birdie-detail-round'});
+      section.append(el('h3', {textContent: round.date}));
+      if (round.birdiedHoleNumbers.length === 0) {
+        section.append(el('span', {className: 'no-birdies', textContent: 'No birdies this round'}));
+      } else {
+        const badges = el('div', {className: 'badges'});
+        for (const h of round.birdiedHoleNumbers) {
+          badges.append(makeBadge(h, 1));
+        }
+        section.append(badges);
+      }
+      rows.append(section);
+    }
+
+    // Total summary row
+    const totalSection = el('div', {className: 'birdie-detail-round total-row'});
+    totalSection.append(el('h3', {textContent: `Total — ${rec.totalBirdies} birdie${rec.totalBirdies !== 1 ? 's' : ''}`}));
+    const allBadges = el('div', {className: 'badges'});
+    for (const h of rec.birdiedHoles) {
+      allBadges.append(makeBadge(h.holeNumber, h.count));
+    }
+    totalSection.append(allBadges);
+    rows.append(totalSection);
+
+    detailView.append(
+      backBtn,
+      el('h2', {textContent: rec.playerName, style: 'margin-bottom:12px;'}),
+      rows
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tab switching — toggles active class on buttons and shows the right panel
+  // ---------------------------------------------------------------------------
+
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Bootstrap — fetch scores.json, compute, and render both tabs
+  // ---------------------------------------------------------------------------
+
+  fetch('scores.json')
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('last-updated').textContent =
+        `Last updated: ${new Date(data.lastUpdated).toLocaleString()}`;
+
+      const ringerCards  = computeRingers(data.players, data.pars);
+      const birdieRecords = computeBirdies(data.players, data.pars);
+
+      document.getElementById('ringer-list-view').append(
+        buildRingerTable(ringerCards, data.pars)
+      );
+
+      document.getElementById('birdie-list-view').append(
+        buildBirdieList(birdieRecords)
+      );
+    })
+    .catch(err => {
+      document.getElementById('last-updated').textContent = 'Failed to load scores.json';
+      console.error(err);
+    });
+  </script>
+</body>
+</html>

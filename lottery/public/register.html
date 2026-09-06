@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>New Sign-Up — MCC</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Manchester Country Club — Weekend Tee Times</h1>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="admin.html">Pro Shop Dashboard</a>
+      <a href="admin-events.html">Manage Events</a>
+    </nav>
+  </header>
+  <main>
+    <div class="card" id="form-card">
+      <h2>New Sign-Up</h2>
+      <form id="reg-form">
+        <label>Event</label>
+        <div class="block-row" id="event-row"></div>
+        <div class="notice-box" id="event-notice" style="display:none"></div>
+
+        <label id="day-label" style="display:none">Day</label>
+        <div class="block-row" id="day-row"></div>
+
+        <label>Preferred Time Block</label>
+        <div class="block-row" id="time-block-row"></div>
+
+        <label for="target-time">Target Time (optional)</label>
+        <select id="target-time"></select>
+
+        <div id="players"></div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="open-group" />
+          <label for="open-group" id="open-group-label">Open for others to join</label>
+        </div>
+
+        <label for="notes">Notes</label>
+        <textarea id="notes" placeholder="Anything the pro shop should know"></textarea>
+
+        <div id="error" class="error"></div>
+        <button type="submit">Submit Sign-Up</button>
+      </form>
+    </div>
+
+    <div class="card success-box" id="success-card" style="display:none">
+      <h2>You're signed up!</h2>
+      <p>Save this link — it's the only way to edit or cancel this registration.</p>
+      <code id="manage-link"></code>
+      <p class="muted">There's no email confirmation yet, so bookmark this page.</p>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    let members = [];
+    let events = [];
+    const playersEl = document.getElementById("players");
+    const eventRow = document.getElementById("event-row");
+    const dayLabel = document.getElementById("day-label");
+    const dayRow = document.getElementById("day-row");
+    const timeBlockRow = document.getElementById("time-block-row");
+    const targetTimeSelect = document.getElementById("target-time");
+    const openGroupCheckbox = document.getElementById("open-group");
+    const openGroupLabel = document.getElementById("open-group-label");
+
+    function renderPlayerSlots(maxPlayers) {
+      playersEl.innerHTML = "";
+      for (let i = 0; i < maxPlayers; i++) {
+        playersEl.appendChild(createPlayerSlotEl(i, members, null));
+      }
+    }
+
+    function currentTimeBlock() {
+      const checked = timeBlockRow.querySelector("input[name=time-block]:checked");
+      return checked ? checked.value : null;
+    }
+
+    function currentEvent() {
+      const checked = eventRow.querySelector("input[name=event]:checked");
+      return events.find((ev) => ev.id === (checked && checked.value)) || null;
+    }
+
+    function currentDay() {
+      const checked = dayRow.querySelector("input[name=day]:checked");
+      return checked ? checked.value : null;
+    }
+
+    function onEventChange() {
+      const event = currentEvent();
+      dayLabel.style.display = event && event.days.length > 1 ? "" : "none";
+      renderDayRadios(dayRow, event, null, "day");
+
+      renderTimeBlockRadios(timeBlockRow, event, null, "time-block");
+      populateTargetTimeSelect(targetTimeSelect, targetTimeSelect.value);
+
+      const maxPlayers = event ? event.maxPlayers : 4;
+      renderPlayerSlots(maxPlayers);
+      openGroupLabel.textContent =
+        maxPlayers > 1 ? `Open for others to join (only if fewer than ${maxPlayers} players)` : "";
+      document.querySelector(".checkbox-row").style.display = maxPlayers > 1 ? "" : "none";
+
+      const noticeEl = document.getElementById("event-notice");
+      if (event && event.noticeText) {
+        noticeEl.textContent = event.noticeText;
+        noticeEl.style.display = "";
+      } else {
+        noticeEl.style.display = "none";
+      }
+    }
+
+    async function init() {
+      const [loadedMembers, loadedEvents] = await Promise.all([loadMembers(), loadEvents()]);
+      members = loadedMembers;
+      events = loadedEvents;
+
+      eventRow.innerHTML = eventRadiosHTML(events, undefined, "event");
+      eventRow.addEventListener("change", onEventChange);
+      timeBlockRow.addEventListener("change", () => {
+        populateTargetTimeSelect(targetTimeSelect, targetTimeSelect.value);
+      });
+      onEventChange();
+    }
+
+    document.getElementById("reg-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById("error");
+      errorEl.textContent = "";
+
+      const slots = [...playersEl.querySelectorAll(".player-slot")];
+      const players = slots.map((slot) => readPlayerSlot(slot, members));
+
+      const payload = {
+        eventId: currentEvent() ? currentEvent().id : null,
+        day: currentDay(),
+        timeBlock: currentTimeBlock(),
+        targetTime: targetTimeSelect.value || null,
+        players,
+        isOpenGroup: openGroupCheckbox.checked,
+        notes: document.getElementById("notes").value,
+      };
+
+      try {
+        const registration = await fetchJSON("/api/registrations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        document.getElementById("form-card").style.display = "none";
+        const successCard = document.getElementById("success-card");
+        successCard.style.display = "";
+        const link = `${location.origin}/manage.html?id=${registration.id}`;
+        const linkEl = document.getElementById("manage-link");
+        linkEl.textContent = link;
+        linkEl.href = link;
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>

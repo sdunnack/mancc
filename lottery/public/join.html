@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Browse Groups — MCC</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Manchester Country Club — Weekend Tee Times</h1>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="admin.html">Pro Shop Dashboard</a>
+          <a href="admin-events.html">Manage Events</a>
+    </nav>
+  </header>
+  <main>
+    <div class="card">
+      <h2>Browse Groups</h2>
+      <label>Event</label>
+      <div class="block-row" id="event-row"></div>
+
+      <label id="day-label" style="display:none">Day</label>
+      <div class="block-row" id="day-row"></div>
+
+      <label for="search">Search by player name</label>
+      <input type="text" id="search" placeholder="Last, First" />
+      <div id="groups"></div>
+    </div>
+
+    <div class="card" id="join-card" style="display:none">
+      <h2>Join Group</h2>
+      <p class="muted" id="join-summary"></p>
+      <div id="join-slot"></div>
+      <div id="error" class="error"></div>
+      <button id="join-submit">Join This Group</button>
+      <button class="secondary" id="join-cancel" type="button">Back</button>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    let members = [];
+    let events = [];
+    let groups = [];
+    let selectedGroup = null;
+
+    const eventRow = document.getElementById("event-row");
+    const dayLabel = document.getElementById("day-label");
+    const dayRow = document.getElementById("day-row");
+
+    function currentEvent() {
+      const checked = eventRow.querySelector("input[name=event]:checked");
+      return events.find((ev) => ev.id === (checked && checked.value)) || null;
+    }
+
+    function currentDay() {
+      const checked = dayRow.querySelector("input[name=day]:checked");
+      return checked ? checked.value : null;
+    }
+
+    function playerSummary(players) {
+      return players
+        .filter(Boolean)
+        .map((p) => p.name)
+        .join(", ");
+    }
+
+    function renderGroups() {
+      const search = document.getElementById("search").value.trim().toLowerCase();
+      const list = document.getElementById("groups");
+      const filtered = groups.filter((g) =>
+        g.players.some((p) => p && p.name.toLowerCase().includes(search))
+      );
+
+      if (filtered.length === 0) {
+        list.innerHTML = `<p class="muted">No groups found for this event/day yet.</p>`;
+        return;
+      }
+
+      list.innerHTML = filtered
+        .map((g) => {
+          const spotsOpen = g.players.length - g.players.filter(Boolean).length;
+          const canJoin = g.isOpenGroup && spotsOpen > 0;
+          return `
+        <div class="open-group-card">
+          <div>
+            <span class="tag">${escapeHtml(g.timeBlock)}</span>
+            ${g.targetTime ? `<span class="tag">${escapeHtml(g.targetTime)}</span>` : ""}
+            <div>${escapeHtml(playerSummary(g.players))}</div>
+            ${canJoin ? `<div class="muted">${spotsOpen} spot(s) open</div>` : ""}
+          </div>
+          ${canJoin ? `<button class="secondary" data-id="${g.id}">Join</button>` : ""}
+        </div>`;
+        })
+        .join("");
+
+      list.querySelectorAll("button[data-id]").forEach((btn) => {
+        btn.addEventListener("click", () => openJoinForm(btn.dataset.id));
+      });
+    }
+
+    function openJoinForm(id) {
+      selectedGroup = groups.find((g) => g.id === id);
+      document.getElementById("join-summary").textContent =
+        `${playerSummary(selectedGroup.players)} — ${selectedGroup.timeBlock}`;
+      const slotContainer = document.getElementById("join-slot");
+      slotContainer.innerHTML = "";
+      slotContainer.appendChild(createPlayerSlotEl(0, members, null));
+      slotContainer.querySelector("h3").firstChild.textContent = "Your Info ";
+      document.getElementById("join-card").style.display = "";
+      document.getElementById("join-card").scrollIntoView({ behavior: "smooth" });
+    }
+
+    document.getElementById("join-cancel").addEventListener("click", () => {
+      document.getElementById("join-card").style.display = "none";
+      selectedGroup = null;
+    });
+
+    document.getElementById("join-submit").addEventListener("click", async () => {
+      const errorEl = document.getElementById("error");
+      errorEl.textContent = "";
+      const slotEl = document.querySelector("#join-slot .player-slot");
+      const player = readPlayerSlot(slotEl, members);
+      if (!player) {
+        errorEl.textContent = "Enter your name (or select yourself from the member list).";
+        return;
+      }
+      try {
+        await fetchJSON(`/api/registrations/${selectedGroup.id}/join`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ player }),
+        });
+        document.getElementById("join-card").innerHTML =
+          '<h2>You\'re in!</h2><p class="muted">You\'ve been added to the group.</p>';
+        await refresh();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+
+    document.getElementById("search").addEventListener("input", renderGroups);
+
+    async function refresh() {
+      const event = currentEvent();
+      const params = new URLSearchParams();
+      if (event) params.set("eventId", event.id);
+      if (event && event.days.length > 1) {
+        const day = currentDay();
+        if (day) params.set("day", day);
+      }
+      groups = await fetchJSON(`/api/registrations?${params.toString()}`);
+      renderGroups();
+    }
+
+    function onEventChange() {
+      const event = currentEvent();
+      dayLabel.style.display = event && event.days.length > 1 ? "" : "none";
+      renderDayRadios(dayRow, event, null, "day");
+      refresh();
+    }
+
+    async function init() {
+      [members, events] = await Promise.all([loadMembers(), loadEvents()]);
+      eventRow.innerHTML = eventRadiosHTML(events, undefined, "event");
+      eventRow.addEventListener("change", onEventChange);
+      dayRow.addEventListener("change", refresh);
+      onEventChange();
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+name: Update Scores
+
+on:
+  schedule:
+    - cron: "0 * * * *" # every hour — tighten to weekends once schedule is known
+  workflow_dispatch: # allow manual trigger from the Actions tab
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Fetch scores
+        env:
+          GOLF_GENIUS_API_KEY: ${{ secrets.GOLF_GENIUS_API_KEY }}
+        run: python scripts/fetch.py
+
+      - name: Commit updated scores.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/scores.json
+          git diff --staged --quiet || git commit -m "Update scores [$(date -u +'%Y-%m-%d %H:%M UTC')]"
+          git push

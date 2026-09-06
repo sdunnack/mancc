@@ -1,0 +1,169 @@
+:root {
+  --color-eagle: #f0c040;
+  --color-eagle-text: #000;
+  --color-birdie: #c00020;
+  --color-birdie-text: #fff;
+  --color-par: #fff;
+  --color-par-text: #111;
+  --color-bogey: #e4e4e4;
+  --color-bogey-text: #333;
+  --color-ringer-ring: #1a6aff;
+
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  background: #f5f5f5;
+  color: #111;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body { padding: 16px; max-width: 1100px; margin: 0 auto; }
+
+h1 { font-size: 1.4rem; margin-bottom: 4px; }
+
+#last-updated { font-size: 0.8rem; color: #666; margin-bottom: 16px; }
+
+/* ── Tabs ── */
+.tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+
+.tab-btn {
+  padding: 8px 20px;
+  border: 2px solid #ccc;
+  border-radius: 6px 6px 0 0;
+  background: #e0e0e0;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.tab-btn.active {
+  background: #fff;
+  border-bottom-color: #fff;
+  color: #1a6aff;
+}
+
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ── Scorecard table ── */
+.scorecard-wrap { overflow-x: auto; }
+
+table {
+  border-collapse: collapse;
+  min-width: 100%;
+  background: #fff;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,.1);
+}
+
+th, td {
+  border: 1px solid #ddd;
+  padding: 6px 8px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+thead th { background: #333; color: #fff; font-size: 0.75rem; }
+thead th.hole-header { min-width: 32px; }
+
+/* Par row */
+tr.par-row td { background: #f0f0f0; font-weight: 600; font-size: 0.75rem; color: #555; }
+
+/* Player name cell */
+td.player-name {
+  text-align: left;
+  font-weight: 600;
+  padding-left: 12px;
+  cursor: pointer;
+  color: #1a6aff;
+}
+td.player-name:hover { text-decoration: underline; }
+
+td.total { font-weight: 700; }
+
+/* Score cell colour coding */
+td.eagle  { background: var(--color-eagle);  color: var(--color-eagle-text); font-weight: 700; }
+td.birdie { background: var(--color-birdie); color: var(--color-birdie-text); font-weight: 700; }
+td.par    { background: var(--color-par);    color: var(--color-par-text); }
+td.bogey  { background: var(--color-bogey);  color: var(--color-bogey-text); }
+td.empty  { background: #fafafa; color: #bbb; }
+
+/* Ringer highlight in detail view — ring around matching cells */
+td.is-ringer { outline: 2px solid var(--color-ringer-ring); outline-offset: -2px; }
+
+/* Ringer summary row at bottom of detail table */
+tr.ringer-row td { font-weight: 700; background: #eef3ff; }
+tr.ringer-row td.player-name { color: #1a6aff; cursor: default; }
+
+/* Back button */
+.back-btn {
+  display: inline-block;
+  margin-bottom: 12px;
+  padding: 6px 14px;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.back-btn:hover { background: #f0f0f0; }
+
+/* ── Birdies list ── */
+.birdie-list { display: flex; flex-direction: column; gap: 8px; }
+
+.birdie-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff;
+  border-radius: 6px;
+  padding: 10px 14px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  cursor: pointer;
+}
+.birdie-row:hover { background: #f0f4ff; }
+
+.birdie-rank { font-weight: 700; min-width: 24px; color: #888; }
+.birdie-name { font-weight: 600; min-width: 140px; }
+.birdie-total { font-weight: 700; min-width: 48px; color: #1a6aff; }
+.badges { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-birdie);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  position: relative;
+}
+.badge sup {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  font-size: 0.55rem;
+  line-height: 1;
+}
+
+/* ── Birdie detail ── */
+.birdie-detail-rows { display: flex; flex-direction: column; gap: 10px; }
+
+.birdie-detail-round {
+  background: #fff;
+  border-radius: 6px;
+  padding: 10px 14px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+.birdie-detail-round h3 {
+  font-size: 0.85rem;
+  color: #555;
+  margin-bottom: 6px;
+}
+.birdie-detail-round.total-row { background: #eef3ff; }
+.birdie-detail-round.total-row h3 { color: #1a6aff; font-weight: 700; }
+.no-birdies { color: #aaa; font-style: italic; font-size: 0.85rem; }

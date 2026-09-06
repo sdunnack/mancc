@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Pro Shop Dashboard — MCC</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Manchester Country Club — Weekend Tee Times</h1>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="admin.html">Pro Shop Dashboard</a>
+          <a href="admin-events.html">Manage Events</a>
+    </nav>
+  </header>
+  <main class="wide">
+    <div class="card">
+      <h2>Pro Shop Dashboard</h2>
+      <p class="muted">All sign-ups, ordered by time block then submission time.</p>
+
+      <label>Event</label>
+      <div class="block-row" id="event-row"></div>
+
+      <label id="day-label" style="display:none">Day</label>
+      <div class="block-row" id="day-row"></div>
+
+      <button id="download-btn">Download CSV</button>
+      <div style="overflow-x:auto; margin-top: 1rem">
+        <table id="table">
+          <thead>
+            <tr id="header-row">
+              <th>#</th>
+              <th>Submitted</th>
+              <th>Event</th>
+              <th>Day</th>
+              <th>Time Block</th>
+              <th>Target Time</th>
+              <th>Open?</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    let events = [];
+    const eventRow = document.getElementById("event-row");
+    const dayLabel = document.getElementById("day-label");
+    const dayRow = document.getElementById("day-row");
+
+    function currentEvent() {
+      const checked = eventRow.querySelector("input[name=event]:checked");
+      return events.find((ev) => ev.id === (checked && checked.value)) || null;
+    }
+
+    function currentDay() {
+      const checked = dayRow.querySelector("input[name=day]:checked");
+      return checked ? checked.value : null;
+    }
+
+    function currentParams() {
+      const params = new URLSearchParams();
+      const event = currentEvent();
+      if (event) {
+        params.set("eventId", event.id);
+        if (event.days.length > 1) {
+          const day = currentDay();
+          if (day) params.set("day", day);
+        }
+      }
+      return params;
+    }
+
+    function eventName(id) {
+      const ev = events.find((e) => e.id === id);
+      return ev ? ev.name : id;
+    }
+
+    function playerCell(p) {
+      if (!p) return "";
+      return `${escapeHtml(p.name)}${p.isGuest ? ' <span class="tag">Guest</span>' : ""}`;
+    }
+
+    async function refresh() {
+      const registrations = await fetchJSON(`/api/registrations?${currentParams().toString()}`);
+
+      const event = currentEvent();
+      const maxPlayers = registrations.reduce(
+        (max, r) => Math.max(max, r.players.length),
+        event ? event.maxPlayers : 4
+      );
+
+      const headerRow = document.getElementById("header-row");
+      headerRow.querySelectorAll(".player-header").forEach((th) => th.remove());
+      const openHeader = headerRow.children[6];
+      for (let i = 0; i < maxPlayers; i++) {
+        const th = document.createElement("th");
+        th.className = "player-header";
+        th.textContent = `Player ${i + 1}`;
+        headerRow.insertBefore(th, openHeader);
+      }
+
+      const body = document.getElementById("table-body");
+      body.innerHTML = registrations
+        .map(
+          (r, i) => `
+        <tr>
+          <td>${i + 1}</td>
+          <td>${new Date(r.createdAt).toLocaleString()}</td>
+          <td>${escapeHtml(eventName(r.eventId))}</td>
+          <td>${escapeHtml(r.day || "")}</td>
+          <td>${escapeHtml(r.timeBlock)}</td>
+          <td>${escapeHtml(r.targetTime || "")}</td>
+          ${Array.from({ length: maxPlayers }, (_, p) => `<td>${playerCell(r.players[p])}</td>`).join("")}
+          <td>${r.isOpenGroup ? "Yes" : ""}</td>
+          <td>${escapeHtml(r.notes || "")}</td>
+        </tr>`
+        )
+        .join("");
+    }
+
+    function onEventChange() {
+      const event = currentEvent();
+      dayLabel.style.display = event && event.days.length > 1 ? "" : "none";
+      renderDayRadios(dayRow, event, null, "day");
+      refresh();
+    }
+
+    document.getElementById("download-btn").addEventListener("click", () => {
+      window.location.href = `/api/registrations/export.csv?${currentParams().toString()}`;
+    });
+
+    async function init() {
+      events = await loadEvents();
+      eventRow.innerHTML =
+        `<label><input type="radio" name="event" value="" checked/> All Events</label>` +
+        eventRadiosHTML(events, null, "event");
+      eventRow.addEventListener("change", onEventChange);
+      dayRow.addEventListener("change", refresh);
+      onEventChange();
+    }
+
+    init();
+  </script>
+</body>
+</html>
